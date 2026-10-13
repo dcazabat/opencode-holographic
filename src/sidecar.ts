@@ -1,15 +1,22 @@
 /**
- * Unix-socket client for the holographic sidecar.
+ * Client for the holographic sidecar.
  *
- * Connects to the always-on sidecar (systemd user unit) and, when the socket is
- * missing and `spawn` is enabled, starts it through sidecar/run.sh and retries.
+ * Connects to the always-on sidecar (systemd / launchd / Task Scheduler) and, when the
+ * endpoint is not up and `spawn` is enabled, starts it through the launcher and retries.
  * One JSON object per line, one response per request.
+ *
+ * Endpoints: a unix socket path on Linux/macOS, `tcp://host:port` (loopback) elsewhere.
  */
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync, openSync } from "node:fs";
+import { existsSync, mkdirSync, openSync } from "node:fs";
 import { connect, type Socket } from "node:net";
+import { dirname, join } from "node:path";
 
-import type { HolographicConfig } from "./config.js";
+import {
+  parseEndpoint,
+  type Endpoint,
+  type HolographicConfig,
+} from "./config.js";
 
 interface Pending {
   resolve: (value: unknown) => void;
@@ -33,11 +40,21 @@ export class SidecarClient {
   private child?: ChildProcess;
   private spawnAttempted = false;
   private closed = false;
+  /** Parsed endpoint; callers may pass only `socketPath`. */
+  private readonly endpoint: Endpoint;
 
   constructor(
     private readonly config: HolographicConfig,
     private readonly log: (message: string) => void = () => {},
-  ) {}
+  ) {
+    this.endpoint = config.endpoint ?? parseEndpoint(config.socketPath);
+  }
+
+  private get target(): string {
+    return this.endpoint.kind === "unix"
+      ? this.endpoint.path
+      : `${this.endpoint.host}:${this.endpoint.port}`;
+  }
 
   get socketPath(): string {
     return this.config.socketPath;
@@ -78,19 +95,23 @@ export class SidecarClient {
       }
     }
     throw new SidecarError(
-      `sidecar did not start within 30s (socket ${this.config.socketPath}, launcher ${this.config.launcher}): ${lastError instanceof Error ? lastError.message : String(lastError)}`,
+      `sidecar did not start within 30s (endpoint ${this.target}, launcher ${this.config.launcher}): ` +
+        `${lastError instanceof Error ? lastError.message : String(lastError)}`,
     );
   }
 
   private attach(): Promise<void> {
+    const endpoint = this.endpoint;
+    const target = this.target;
     return new Promise((resolve, reject) => {
-      const socket = connect(this.config.socketPath);
+      const socket =
+        endpoint.kind === "unix"
+          ? connect(endpoint.path)
+          : connect({ host: endpoint.host, port: endpoint.port });
       const onError = (error: Error) => {
         socket.destroy();
         reject(
-          new SidecarError(
-            `cannot connect to ${this.config.socketPath}: ${error.message}`,
-          ),
+          new SidecarError(`cannot connect to ${target}: ${error.message}`),
         );
       };
       socket.once("error", onError);
@@ -101,10 +122,23 @@ export class SidecarClient {
         socket.on("data", (chunk: string) => this.onData(chunk));
         socket.on("error", (error: Error) => this.onClose(error));
         socket.on("close", () => this.onClose());
-        this.log(`connected to ${this.config.socketPath}`);
+        this.log(`connected to ${target}`);
         resolve();
       });
     });
+  }
+
+  private logFile(): string {
+    const base =
+      this.endpoint.kind === "unix"
+        ? `${this.config.socketPath}.log`
+        : join(dirname(this.config.configPath), "sidecar.log");
+    try {
+      mkdirSync(dirname(base), { recursive: true });
+    } catch {
+      /* best effort */
+    }
+    return base;
   }
 
   private startSidecar(): void {
@@ -118,16 +152,16 @@ export class SidecarClient {
       HERMES_HOME: this.config.hermesHome,
       OPENCODE_HOLOGRAPHIC_SOCKET: this.config.socketPath,
     };
+    if (this.config.token) env.OPENCODE_HOLOGRAPHIC_TOKEN = this.config.token;
     if (this.config.pythonPath)
       env.OPENCODE_HOLOGRAPHIC_PYTHON = this.config.pythonPath;
     if (this.config.configPath)
       env.OPENCODE_HOLOGRAPHIC_CONFIG = this.config.configPath;
     if (this.config.dbPath) env.OPENCODE_HOLOGRAPHIC_DB = this.config.dbPath;
 
-    const logPath = `${this.config.socketPath}.log`;
     let stdio: "ignore" | ["ignore", number, number] = "ignore";
     try {
-      const fd = openSync(logPath, "a");
+      const fd = openSync(this.logFile(), "a");
       stdio = ["ignore", fd, fd];
     } catch {
       stdio = "ignore";
@@ -201,7 +235,12 @@ export class SidecarClient {
     const socket = this.socket;
     if (!socket) throw new SidecarError("not connected");
     const id = this.nextId++;
-    const payload = JSON.stringify({ id, cmd, args }) + "\n";
+    const payload =
+      JSON.stringify(
+        this.config.token
+          ? { id, cmd, args, token: this.config.token }
+          : { id, cmd, args },
+      ) + "\n";
     if (this.config.debug)
       this.log(`-> ${cmd} ${JSON.stringify(args).slice(0, 300)}`);
     return new Promise<T>((resolve, reject) => {

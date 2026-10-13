@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Template for macOS. `./install.sh` writes an adapted copy to
+  ~/Library/LaunchAgents/com.opencode.holographic.plist and loads it:
+
+      launchctl load -w ~/Library/LaunchAgents/com.opencode.holographic.plist
+      launchctl list | grep holographic
+      tail -f ~/Library/Logs/opencode-holographic.log
+
+  Replace every /Users/you path and keep %t-style variables expanded (launchd has none):
+  the socket lives under ~/Library/Caches because macOS has no XDG_RUNTIME_DIR.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.opencode.holographic</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/you/Documentos/opencode-holographic/sidecar/run.sh</string>
+  </array>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HERMES_HOME</key>
+    <string>/Users/you/.hermes</string>
+    <key>OPENCODE_HOLOGRAPHIC_CONFIG</key>
+    <string>/Users/you/.config/opencode-holographic/config.json</string>
+    <key>OPENCODE_HOLOGRAPHIC_SOCKET</key>
+    <string>/Users/you/Library/Caches/opencode-holographic/sidecar.sock</string>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>/Users/you/Library/Logs/opencode-holographic.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/you/Library/Logs/opencode-holographic.log</string>
+</dict>
+</plist>

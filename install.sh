@@ -19,9 +19,27 @@ HERMES_HOME="${HERMES_HOME:-$HOME/.hermes}"
 CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/opencode-holographic"
 CONFIG_FILE="$CONFIG_DIR/config.json"
 DEFAULT_DB="$HOME/.local/share/opencode-holographic/memory_store.db"
-DEFAULT_SOCKET="$( [ -n "${XDG_RUNTIME_DIR:-}" ] && printf '%s' "$XDG_RUNTIME_DIR/opencode-holographic.sock" || printf '%s' "/tmp/opencode-holographic-$(id -u).sock" )"
+OS="$(uname -s 2>/dev/null || echo unknown)"
+case "$OS" in
+  Darwin) DEFAULT_SOCKET="$HOME/Library/Caches/opencode-holographic/sidecar.sock" ;;
+  *)      DEFAULT_SOCKET="$( [ -n "${XDG_RUNTIME_DIR:-}" ] && printf '%s' "$XDG_RUNTIME_DIR/opencode-holographic.sock" || printf '%s' "/tmp/opencode-holographic-$(id -u).sock" )" ;;
+esac
 UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 UNIT_FILE="$UNIT_DIR/opencode-holographic.service"
+
+case "$(uname -s 2>/dev/null || echo unknown)" in
+  MINGW*|MSYS*|CYGWIN*)
+    cat >&2 <<'MSG'
+install.sh is for Linux and macOS. On Windows use the documented steps:
+  1. py -3 -m venv .venv && .venv\Scripts\python -m pip install numpy
+  2. run: .venv\Scripts\python sidecar\server.py --check --mode standalone --db C:\path\memory_store.db
+  3. schedule sidecar\run.cmd at logon (Task Scheduler) and set the plugin options with
+     "socketPath": "tcp://127.0.0.1:4748"
+See the README section "Windows" for the full walkthrough.
+MSG
+    exit 1
+    ;;
+esac
 
 MODE="auto"
 DB_PATH=""
@@ -130,7 +148,36 @@ PY
 info "config written: $CONFIG_FILE"
 
 # ---------------------------------------------------------------- service
-if [ "$WITH_SERVICE" = 1 ]; then
+if [ "$WITH_SERVICE" = 1 ] && [ "$OS" = "Darwin" ]; then
+  AGENT_DIR="$HOME/Library/LaunchAgents"
+  AGENT_FILE="$AGENT_DIR/com.opencode.holographic.plist"
+  LOG_DIR="$HOME/Library/Logs"
+  mkdir -p "$AGENT_DIR" "$LOG_DIR" "$(dirname "$SOCKET_PATH")"
+  cat > "$AGENT_FILE" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.opencode.holographic</string>
+  <key>ProgramArguments</key>
+  <array><string>$PROJECT/sidecar/run.sh</string></array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HERMES_HOME</key><string>$HERMES_HOME</string>
+    <key>OPENCODE_HOLOGRAPHIC_CONFIG</key><string>$CONFIG_FILE</string>
+    <key>OPENCODE_HOLOGRAPHIC_SOCKET</key><string>$SOCKET_PATH</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>$LOG_DIR/opencode-holographic.log</string>
+  <key>StandardErrorPath</key><string>$LOG_DIR/opencode-holographic.log</string>
+</dict>
+</plist>
+EOF
+  launchctl unload "$AGENT_FILE" 2>/dev/null || true
+  launchctl load -w "$AGENT_FILE"
+  info "service: launchd ($AGENT_FILE) — logs: $LOG_DIR/opencode-holographic.log"
+elif [ "$WITH_SERVICE" = 1 ]; then
   mkdir -p "$UNIT_DIR"
   cat > "$UNIT_FILE" <<EOF
 [Unit]
@@ -180,7 +227,15 @@ Add the plugin to ~/.config/opencode/opencode.json and restart OpenCode:
   opencode service restart
 
 Useful commands:
+$(if [ "$OS" = "Darwin" ]; then cat <<'CMDS'
+  launchctl list | grep holographic
+  tail -f ~/Library/Logs/opencode-holographic.log
+  launchctl unload -w ~/Library/LaunchAgents/com.opencode.holographic.plist   # stop
+CMDS
+else cat <<'CMDS'
   systemctl --user status opencode-holographic
   journalctl --user -u opencode-holographic -f
+CMDS
+fi)
   $PROJECT/sidecar/run.sh --check
 EOF

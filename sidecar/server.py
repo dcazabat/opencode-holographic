@@ -79,6 +79,37 @@ _ALLOWED_TOOLS: set[str] = set()
 _SERVER = None
 _STOPPING = False
 _HERMES_HOME = str(Path(os.environ.get("HERMES_HOME", "~/.hermes")).expanduser())
+_TOKEN = ""
+
+
+def default_endpoint() -> str:
+    """Unix socket where the OS provides one, TCP loopback on Windows (Node there does
+    not connect to a Python AF_UNIX socket; it uses named pipes)."""
+    if sys.platform == "win32":
+        return "tcp://127.0.0.1:4748"
+    if sys.platform == "darwin":
+        return str(Path("~/Library/Caches/opencode-holographic/sidecar.sock").expanduser())
+    runtime = os.environ.get("XDG_RUNTIME_DIR")
+    if runtime:
+        return str(Path(runtime) / "opencode-holographic.sock")
+    uid = os.getuid() if hasattr(os, "getuid") else "user"
+    return str(Path("/tmp") / f"opencode-holographic-{uid}.sock")
+
+
+def parse_endpoint(value: str) -> tuple[str, object]:
+    """`tcp://host:port`, `unix:/path`, `unix:///path` or a plain path (unix)."""
+    text = str(value or "").strip()
+    if text.startswith("tcp://"):
+        host, _, port = text[len("tcp://"):].rpartition(":")
+        return "tcp", (host or "127.0.0.1", int(port))
+    for prefix in ("unix://", "unix:"):
+        if text.startswith(prefix):
+            return "unix", Path(text[len(prefix):])
+    return "unix", Path(text)
+
+
+def _is_loopback(host: str) -> bool:
+    return host in ("127.0.0.1", "localhost", "::1", "[::1]")
 
 
 # --------------------------------------------------------------------------- config
@@ -267,6 +298,8 @@ class _Handler(socketserver.StreamRequestHandler):
             try:
                 request = json.loads(raw)
                 req_id = request.get("id")
+                if _TOKEN and str(request.get("token") or "") != _TOKEN:
+                    raise PermissionError("unauthorized")
                 result = _handle(str(request.get("cmd") or ""), request.get("args") or {})
                 response = {"id": req_id, "ok": True, "result": result}
             except Exception as exc:
@@ -280,6 +313,11 @@ class _Handler(socketserver.StreamRequestHandler):
 
 
 class _Server(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
+    daemon_threads = True
+    allow_reuse_address = True
+
+
+class _TcpServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     daemon_threads = True
     allow_reuse_address = True
 
@@ -323,13 +361,14 @@ def _prepare_socket(path: Path) -> None:
 
 
 def main() -> int:
-    global _SERVER
+    global _SERVER, _TOKEN
     parser = argparse.ArgumentParser(description="opencode-holographic sidecar")
     parser.add_argument(
         "--socket",
-        default=os.environ.get("OPENCODE_HOLOGRAPHIC_SOCKET")
-        or str(Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "opencode-holographic.sock"),
+        default=os.environ.get("OPENCODE_HOLOGRAPHIC_SOCKET") or default_endpoint(),
+        help="unix:/path, a plain path, or tcp://host:port",
     )
+    parser.add_argument("--token", default=os.environ.get("OPENCODE_HOLOGRAPHIC_TOKEN") or None)
     parser.add_argument("--config", default=os.environ.get("OPENCODE_HOLOGRAPHIC_CONFIG") or None)
     parser.add_argument("--db-path", default=None, help="SQLite file; wins over the config file")
     parser.add_argument("--mode", default=os.environ.get("OPENCODE_HOLOGRAPHIC_MODE") or "auto",
@@ -349,6 +388,7 @@ def main() -> int:
     config = load_config_file(args.config)
     if args.hermes_home:
         config.setdefault("hermesHome", args.hermes_home)
+    _TOKEN = str(args.token or config.get("token") or "")
 
     _load_provider(args, config)
 
@@ -361,6 +401,7 @@ def main() -> int:
                 "db_path": _DB_PATH,
                 "tools": sorted(_ALLOWED_TOOLS),
                 "python": sys.executable,
+                "endpoint": args.socket,
                 "config": str(Path(_expand(args.config)) if args.config else DEFAULT_CONFIG.expanduser()),
             },
             ensure_ascii=False,
@@ -368,11 +409,19 @@ def main() -> int:
         _PROVIDER.shutdown()
         return 0
 
-    sock = Path(args.socket).expanduser()
-    _prepare_socket(sock)
-    _SERVER = _Server(str(sock), _Handler)
-    os.chmod(sock, 0o600)
-    logger.info("listening on %s", sock)
+    kind, target = parse_endpoint(args.socket)
+    if kind == "tcp":
+        host, port = target
+        if not _is_loopback(host) and not _TOKEN:
+            logger.warning("listening on %s without a token: anyone who can reach that port can read and write the store", args.socket)
+        _SERVER = _TcpServer((host, port), _Handler)
+    else:
+        _prepare_socket(target)
+        _SERVER = _Server(str(target), _Handler)
+        os.chmod(target, 0o600)
+    logger.info("listening on %s (%s)", args.socket, kind)
+    if _TOKEN:
+        logger.info("token required")
 
     signal.signal(signal.SIGTERM, _request_stop)
     signal.signal(signal.SIGINT, _request_stop)
@@ -385,7 +434,8 @@ def main() -> int:
                     _PROVIDER.shutdown()
                 except Exception:
                     pass
-        sock.unlink(missing_ok=True)
+        if kind == "unix":
+            target.unlink(missing_ok=True)
         logger.info("stopped")
     return 0
 

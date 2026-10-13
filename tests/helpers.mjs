@@ -114,6 +114,24 @@ export function numpyPython() {
   return undefined;
 }
 
+/** Like waitFor, but the attempt is async and its returned value is awaited. */
+export async function waitForValue(attempt, timeoutMs, what) {
+  const deadline = Date.now() + timeoutMs;
+  let last;
+  while (Date.now() < deadline) {
+    try {
+      const value = await attempt();
+      if (value !== undefined && value !== null) return value;
+    } catch (error) {
+      last = error;
+    }
+    await sleep(200);
+  }
+  throw new Error(
+    `timed out waiting for ${what}${last ? `: ${last instanceof Error ? last.message : last}` : ""}`,
+  );
+}
+
 export async function waitFor(condition, timeoutMs, what) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {

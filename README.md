@@ -110,65 +110,165 @@ Two details that matter:
 
 ## Install
 
+Works on Linux, macOS and Windows. The **protocol and both endpoints (unix socket and
+`tcp://`) are covered by the test suite**; the Linux service path is the one exercised
+end to end on every change.
+
+### Linux
+
 ```bash
 git clone https://github.com/dcazabat/opencode-holographic.git ~/Documentos/opencode-holographic
 cd ~/Documentos/opencode-holographic
-npm install            # dev dependencies only (types + typescript)
-./install.sh           # interactive: picks the mode and asks where the database goes
+npm install          # dev dependencies only (types + typescript)
+./install.sh         # interactive: picks the mode and asks where the database goes
 ```
 
-Non-interactive examples:
+What the installer does: detects **shared** (Hermes present) or **standalone**, asks for the
+database path only in standalone mode, writes `~/.config/opencode-holographic/config.json`,
+installs `opencode-holographic.service` as a **systemd user unit** (`Restart=always`), enables and
+starts it, then verifies the setup and prints the plugin snippet.
+
+Non-interactive:
 
 ```bash
 ./install.sh --mode standalone --db ~/memoria/memory_store.db --yes   # no Hermes
 ./install.sh --mode shared --yes                                      # reuse Hermes' store
+./install.sh --no-service --yes                                       # config only
 ./install.sh --help
 ```
 
-The installer writes `~/.config/opencode-holographic/config.json`, installs the
-`opencode-holographic.service` **user** service (`Restart=always`), starts it and prints a summary:
+The socket lives in `$XDG_RUNTIME_DIR/opencode-holographic.sock` (or
+`/tmp/opencode-holographic-<uid>.sock` when `XDG_RUNTIME_DIR` is unset). On a machine **without
+systemd** (containers, minimal distros), use `--no-service` and supervise the process yourself:
 
-```
-==> mode: standalone
-==> database: /home/you/memoria/memory_store.db (will be created)
-  mode=standalone  provider=vendored  db=/home/you/memoria/memory_store.db  tools=fact_feedback,fact_store
+```bash
+sidecar/run.sh --verbose            # foreground
+nohup sidecar/run.sh &              # or under s6/supervisord/runit
 ```
 
-Then register the plugin in `~/.config/opencode/opencode.json`. The path must be a **directory**
-(OpenCode rejects a file path with _"configured plugin path must be a directory"_), and OpenCode
-loads `<directory>/index.ts`, so editing the TypeScript needs **no rebuild**:
+With `"spawn": true` (the default) OpenCode also starts the sidecar on demand when the socket is
+missing, so the service is a convenience rather than a requirement.
+
+### macOS
+
+Same commands; the installer detects Darwin and installs a **LaunchAgent** instead of a systemd
+unit:
+
+```bash
+./install.sh
+launchctl list | grep holographic
+tail -f ~/Library/Logs/opencode-holographic.log
+```
+
+- Service file: `~/Library/LaunchAgents/com.opencode.holographic.plist` (template in `launchd/`).
+- Logs: `~/Library/Logs/opencode-holographic.log`.
+- The socket lives in `~/Library/Caches/opencode-holographic/sidecar.sock`, because macOS has no
+  `XDG_RUNTIME_DIR` (and `/tmp` is world-writable).
+- Stop it with `launchctl unload -w ~/Library/LaunchAgents/com.opencode.holographic.plist`;
+  start it again with `launchctl load -w …`.
+- If macOS blocks the scripts (`Operation not permitted`), run `chmod +x sidecar/*.sh install.sh`.
+
+### Windows
+
+Windows uses a **TCP endpoint on loopback** instead of a unix socket: Node cannot connect to a
+Python `AF_UNIX` socket there (it uses named pipes), so the default is
+`tcp://127.0.0.1:4748`.
+
+```powershell
+git clone https://github.com/dcazabat/opencode-holographic.git "$HOME\Documentos\opencode-holographic"
+cd "$HOME\Documentos\opencode-holographic"
+
+py -3 -m venv .venv
+.venv\Scripts\python -m pip install numpy          # numpy is all standalone mode needs
+
+# check the resolution (mode, provider, database, tools)
+.venv\Scripts\python sidecar\server.py --check --mode standalone --db "$HOME\memoria\memory_store.db"
+```
+
+Write the config (`%USERPROFILE%\.config\opencode-holographic\config.json`):
+
+```json
+{
+  "mode": "standalone",
+  "dbPath": "C:\\Users\\you\\memoria\\memory_store.db",
+  "socketPath": "tcp://127.0.0.1:4748",
+  "hermesHome": "C:\\Users\\you\\.hermes"
+}
+```
+
+Run it at logon with **Task Scheduler** (the equivalent of the systemd unit):
+
+```powershell
+# a task that starts the sidecar when you sign in and restarts it if it exits
+schtasks /create /tn "opencode-holographic" /sc onlogon /rl limited ^
+  /tr "\"$HOME\Documentos\opencode-holographic\sidecar\run.cmd\""
+schtasks /run /tn "opencode-holographic"
+```
+
+`sidecar\run.cmd` picks the interpreter (`%OPENCODE_HOLOGRAPHIC_PYTHON%` → `.venv` → `python`),
+sets `PYTHONPATH` and starts the server. Use `run.cmd --verbose` to watch it, or drop a shortcut
+in `shell:startup` instead of Task Scheduler.
+
+Plugin entry in `%USERPROFILE%\.config\opencode\opencode.json`:
 
 ```jsonc
 {
   "plugins": [
     {
-      "package": "/home/<you>/Documentos/opencode-holographic",
-      "options": { "socketPath": "/run/user/1000/opencode-holographic.sock" },
+      "package": "C:\\Users\\you\\Documentos\\opencode-holographic",
+      "options": {
+        "socketPath": "tcp://127.0.0.1:4748",
+        "configPath": "C:\\Users\\you\\.config\\opencode-holographic\\config.json",
+      },
     },
   ],
 }
 ```
 
-Restart OpenCode and check:
+Notes for Windows:
+
+- The port is bound to `127.0.0.1` only. Binding a non-loopback host makes the sidecar log a
+  warning; set `"token"` in the config (or `OPENCODE_HOLOGRAPHIC_TOKEN`) — every request must then
+  carry it.
+- Hermes on Windows: if you have it, `"mode": "shared"` loads the provider from
+  `%HERMES_HOME%\plugins\holographic` and the store path from its `config.yaml`.
+- `.venv\Scripts\python.exe` is required: the launcher looks for it, then `python` on `PATH`.
+
+### WSL and containers
+
+- **WSL**: follow the Linux steps inside the distribution. OpenCode running on Windows would need
+  the TCP endpoint to reach a WSL-sidecar.
+- **Docker / devcontainers**: the sidecar must run where OpenCode runs, or expose the endpoint.
+  A unix socket needs a shared mount; without one, run the sidecar with
+  `--socket tcp://0.0.0.0:4748 --token <secret>` **inside the same network namespace** and point the
+  plugin at `tcp://host:4748` with the same token.
+
+### Verify
 
 ```bash
-opencode service restart
-~/Documentos/opencode-holographic/sidecar/run.sh --check   # mode, provider, database, tools
+opencode service restart                  # after changing opencode.json
+sidecar/run.sh --check                    # mode, provider, database, tools, endpoint
 ```
 
-In a session, the tools should now be available:
+`--check` prints something like:
 
-```
-fact_store({ action: "stats" })
-fact_store({ action: "search", query: "deploy" })
-fact_store({ action: "add", content: "Something worth remembering." })
+```json
+{
+  "ok": true,
+  "mode": "standalone",
+  "provider": "vendored",
+  "db_path": "/home/you/memoria/memory_store.db",
+  "tools": ["fact_feedback", "fact_store"],
+  "endpoint": "/run/user/1000/opencode-holographic.sock"
+}
 ```
 
 ### Manual install (no installer)
 
 ```bash
-npm test                                   # 24 tests, against a copy of the store
-cp systemd/opencode-holographic.service ~/.config/systemd/user/   # adjust the paths inside
+npm test                                   # 25 tests, against a copy of the store
+cp systemd/opencode-holographic.service ~/.config/systemd/user/   # Linux: adjust the paths inside
+cp launchd/com.opencode.holographic.plist ~/Library/LaunchAgents/  # macOS: same
 systemctl --user daemon-reload && systemctl --user enable --now opencode-holographic
 ```
 
@@ -176,27 +276,28 @@ systemctl --user daemon-reload && systemctl --user enable --now opencode-hologra
 
 `~/.config/opencode-holographic/config.json` (written by the installer):
 
-| Key                                                                                                                  | Meaning                                                      |
-| -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
-| `mode`                                                                                                               | `shared` \| `standalone` (`auto` by default in the sidecar). |
-| `dbPath`                                                                                                             | The store file (standalone).                                 |
-| `socketPath`                                                                                                         | Where the sidecar listens.                                   |
-| `hermesHome`                                                                                                         | Hermes installation to use in shared mode.                   |
-| `hrr_dim`, `hrr_weight`, `prefetch_min_coverage`, `prefetch_repeat_turns`, `min_trust_threshold`, `recall_source`, … | Passed straight to the provider.                             |
+| Key                                                                                                                  | Meaning                                                            |
+| -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| `mode`                                                                                                               | `shared` \| `standalone` (`auto` by default in the sidecar).       |
+| `dbPath`                                                                                                             | The store file (standalone).                                       |
+| `socketPath`                                                                                                         | Endpoint the sidecar listens on: a unix path or `tcp://host:port`. |
+| `hermesHome`                                                                                                         | Hermes installation to use in shared mode.                         |
+| `hrr_dim`, `hrr_weight`, `prefetch_min_coverage`, `prefetch_repeat_turns`, `min_trust_threshold`, `recall_source`, … | Passed straight to the provider.                                   |
 
 Plugin options in `opencode.json` (all optional; environment variables are read as defaults):
 
-| Option       | Env                           | Default                                      | Meaning                                                 |
-| ------------ | ----------------------------- | -------------------------------------------- | ------------------------------------------------------- |
-| `socketPath` | `OPENCODE_HOLOGRAPHIC_SOCKET` | `$XDG_RUNTIME_DIR/opencode-holographic.sock` | Socket the sidecar listens on.                          |
-| `configPath` | `OPENCODE_HOLOGRAPHIC_CONFIG` | `~/.config/opencode-holographic/config.json` | Config file passed to the sidecar.                      |
-| `dbPath`     | `OPENCODE_HOLOGRAPHIC_DB`     | –                                            | Explicit store path (overrides the config file).        |
-| `launcher`   | –                             | `<project>/sidecar/run.sh`                   | Starts the sidecar when the socket is missing.          |
-| `pythonPath` | `OPENCODE_HOLOGRAPHIC_PYTHON` | auto-detected                                | Interpreter override.                                   |
-| `hermesHome` | `HERMES_HOME`                 | `~/.hermes`                                  | Hermes home (shared mode).                              |
-| `timeoutMs`  | –                             | `8000`                                       | Per-request timeout; a failure degrades to "no memory". |
-| `spawn`      | –                             | `true`                                       | Start the sidecar on demand when the service is down.   |
-| `debug`      | –                             | `false`                                      | Log sidecar traffic to the OpenCode log.                |
+| Option       | Env                           | Default                                                     | Meaning                                                                                  |
+| ------------ | ----------------------------- | ----------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `socketPath` | `OPENCODE_HOLOGRAPHIC_SOCKET` | unix socket (Linux/macOS), `tcp://127.0.0.1:4748` (Windows) | Endpoint: a path, `unix:/path`, or `tcp://host:port`.                                    |
+| `token`      | `OPENCODE_HOLOGRAPHIC_TOKEN`  | –                                                           | Shared secret; every request must carry it (recommended for TCP on a non-loopback host). |
+| `configPath` | `OPENCODE_HOLOGRAPHIC_CONFIG` | `~/.config/opencode-holographic/config.json`                | Config file passed to the sidecar.                                                       |
+| `dbPath`     | `OPENCODE_HOLOGRAPHIC_DB`     | –                                                           | Explicit store path (overrides the config file).                                         |
+| `launcher`   | –                             | `<project>/sidecar/run.sh` (`run.cmd` on Windows)           | Starts the sidecar when the socket is missing.                                           |
+| `pythonPath` | `OPENCODE_HOLOGRAPHIC_PYTHON` | auto-detected                                               | Interpreter override.                                                                    |
+| `hermesHome` | `HERMES_HOME`                 | `~/.hermes`                                                 | Hermes home (shared mode).                                                               |
+| `timeoutMs`  | –                             | `8000`                                                      | Per-request timeout; a failure degrades to "no memory".                                  |
+| `spawn`      | –                             | `true`                                                      | Start the sidecar on demand when the service is down.                                    |
+| `debug`      | –                             | `false`                                                     | Log sidecar traffic to the OpenCode log.                                                 |
 
 ## Operations
 
@@ -210,15 +311,20 @@ npm run sidecar                                   # run the sidecar in the foreg
 
 ## Troubleshooting
 
-| Symptom                                            | Cause / fix                                                                                                       |
-| -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `configured plugin path must be a directory`       | Point `plugins[].package` at the project directory, not at `dist/index.js`.                                       |
-| Tools missing in a session                         | Restart OpenCode (`opencode service restart`) after changing `opencode.json`.                                     |
-| `no database path configured; using the default …` | Standalone with nothing configured: run `./install.sh` (it writes `dbPath`), or pass `--db`.                      |
-| `standalone mode needs the vendored provider at …` | The clone is incomplete: `vendor/holographic/` must exist.                                                        |
-| `discover.sh: no interpreter with numpy found`     | Run `./install.sh` (it creates a `.venv`) or set `OPENCODE_HOLOGRAPHIC_PYTHON`.                                   |
-| Recall finds nothing                               | Check the database with `fact_store({action:"stats"})`; greetings and short messages deliberately recall nothing. |
-| Tests skip with _"requires a Hermes install"_      | Expected without Hermes. With Hermes but no facts, set `HOLOGRAPHIC_TEST_SOURCE` to a `memory_store.db`.          |
+| Symptom                                            | Cause / fix                                                                                                                                                    |
+| -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `configured plugin path must be a directory`       | Point `plugins[].package` at the project directory, not at `dist/index.js`.                                                                                    |
+| Tools missing in a session                         | Restart OpenCode (`opencode service restart`) after changing `opencode.json`.                                                                                  |
+| `no database path configured; using the default …` | Standalone with nothing configured: run `./install.sh` (it writes `dbPath`), or pass `--db`.                                                                   |
+| `standalone mode needs the vendored provider at …` | The clone is incomplete: `vendor/holographic/` must exist.                                                                                                     |
+| `discover.sh: no interpreter with numpy found`     | Run `./install.sh` (it creates a `.venv`) or set `OPENCODE_HOLOGRAPHIC_PYTHON`.                                                                                |
+| Windows: `run.cmd` does nothing                    | Use `.venv\Scripts\python.exe` (the launcher looks for it, then `python` on `PATH`) and check the Task Scheduler history.                                      |
+| Windows: connection refused on `127.0.0.1:4748`    | The sidecar is not running, or another process owns the port; run `sidecar\run.cmd --verbose` and pick another port in both the config and the plugin options. |
+| macOS: `Operation not permitted` running a script  | `chmod +x sidecar/*.sh install.sh`.                                                                                                                            |
+| macOS: the socket is not in `/tmp`                 | Expected: it lives in `~/Library/Caches/opencode-holographic/` (no `XDG_RUNTIME_DIR`).                                                                         |
+| `unauthorized` from the sidecar                    | A token is configured; put the same `"token"` in the plugin options or `OPENCODE_HOLOGRAPHIC_TOKEN`.                                                           |
+| Recall finds nothing                               | Check the database with `fact_store({action:"stats"})`; greetings and short messages deliberately recall nothing.                                              |
+| Tests skip with _"requires a Hermes install"_      | Expected without Hermes. With Hermes but no facts, set `HOLOGRAPHIC_TEST_SOURCE` to a `memory_store.db`.                                                       |
 
 **Inspecting the store by hand:** copy the database **with its `-wal` and `-shm`** before reading it.
 A store's `.db` file can be far behind the live state (vectors, new tables) while the pending changes
