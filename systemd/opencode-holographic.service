@@ -1,0 +1,17 @@
+[Unit]
+Description=opencode-holographic sidecar — Hermes holographic memory (fact_store) for OpenCode
+Documentation=file:%h/Documentos/opencode-holographic/README.md
+After=default.target
+
+[Service]
+Type=simple
+# Adjust this path if the project is not at ~/Documentos/opencode-holographic.
+ExecStart=%h/Documentos/opencode-holographic/sidecar/run.sh
+Environment=HERMES_HOME=%h/.hermes
+Environment=OPENCODE_HOLOGRAPHIC_SOCKET=%t/opencode-holographic.sock
+Restart=always
+RestartSec=3
+TimeoutStopSec=15
+
+[Install]
+WantedBy=default.target
