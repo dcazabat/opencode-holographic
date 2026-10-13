@@ -347,3 +347,11 @@ pendientes están en el WAL; y la ruta _default_ de Hermes puede existir como un
 originalmente `NousResearch/hermes-plugin-holographic`), fijada por commit en
 `vendor/holographic/UPSTREAM.md`. Su `LICENSE` y `LICENSES/` (datos de diccionarios) se conservan.
 Solo se usa en modo standalone; cuando Hermes está presente, gana su propia copia.
+
+## Licencia
+
+MIT — ver [LICENSE](LICENSE).
+
+El provider dentro de `vendor/holographic/` es una obra aparte, también MIT
+(Copyright (c) 2025 Nous Research, (c) 2026 itpartypattaya); su propio `LICENSE` y
+`LICENSES/` (datos de diccionarios) se conservan en ese directorio.

@@ -347,3 +347,11 @@ the configured `db_path`.
 originally `NousResearch/hermes-plugin-holographic`), pinned by commit in
 `vendor/holographic/UPSTREAM.md`. Its `LICENSE` and `LICENSES/` (dictionary data) are kept alongside.
 It is only used in standalone mode; when Hermes is present its own copy wins.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
+
+The provider under `vendor/holographic/` is a separate MIT-licensed work
+(Copyright (c) 2025 Nous Research, (c) 2026 itpartypattaya); its own `LICENSE` and
+`LICENSES/` (bundled dictionary data) are kept in that directory.

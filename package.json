@@ -2,8 +2,9 @@
   "name": "opencode-holographic",
   "version": "0.1.0",
   "private": true,
-  "type": "module",
   "description": "OpenCode V2 plugin + sidecar that reuses Hermes' holographic SQLite memory store",
+  "license": "MIT",
+  "type": "module",
   "scripts": {
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.build.json",
