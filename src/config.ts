@@ -18,6 +18,8 @@ export interface HolographicConfig {
   pythonPath?: string;
   /** Hermes home directory. */
   hermesHome: string;
+  /** Sidecar config file (mode, database path, provider settings). */
+  configPath: string;
   /** Optional explicit SQLite path (overrides the Hermes config). */
   dbPath?: string;
   /** Per-request timeout in milliseconds. */
@@ -65,6 +67,10 @@ export function resolveConfig(
     pythonPath:
       str(options.pythonPath) ?? process.env.OPENCODE_HOLOGRAPHIC_PYTHON,
     hermesHome,
+    configPath:
+      str(options.configPath) ??
+      process.env.OPENCODE_HOLOGRAPHIC_CONFIG ??
+      join(homedir(), ".config", "opencode-holographic", "config.json"),
     dbPath: str(options.dbPath) ?? process.env.OPENCODE_HOLOGRAPHIC_DB,
     timeoutMs: num(options.timeoutMs, DEFAULTS.timeoutMs),
     spawn: bool(options.spawn, DEFAULTS.spawn),

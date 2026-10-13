@@ -8,6 +8,8 @@
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.build.json",
     "test": "npm run build && node --test tests/*.test.mjs",
+    "setup": "./install.sh",
+    "check": "./sidecar/run.sh --check --verbose",
     "sidecar": "./sidecar/run.sh --verbose"
   },
   "devDependencies": {

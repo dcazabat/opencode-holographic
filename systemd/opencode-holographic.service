@@ -1,5 +1,7 @@
+# Template. `./install.sh` writes a copy adapted to your paths into
+# ~/.config/systemd/user/ (this file exists for reference and for a manual install).
 [Unit]
-Description=opencode-holographic sidecar — Hermes holographic memory (fact_store) for OpenCode
+Description=opencode-holographic sidecar — holographic memory (fact_store) for OpenCode
 Documentation=file:%h/Documentos/opencode-holographic/README.md
 After=default.target
 
@@ -8,6 +10,7 @@ Type=simple
 # Adjust this path if the project is not at ~/Documentos/opencode-holographic.
 ExecStart=%h/Documentos/opencode-holographic/sidecar/run.sh
 Environment=HERMES_HOME=%h/.hermes
+Environment=OPENCODE_HOLOGRAPHIC_CONFIG=%h/.config/opencode-holographic/config.json
 Environment=OPENCODE_HOLOGRAPHIC_SOCKET=%t/opencode-holographic.sock
 Restart=always
 RestartSec=3

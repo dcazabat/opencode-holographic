@@ -91,6 +91,29 @@ export function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/**
+ * A Python interpreter with numpy (all the standalone mode needs). Prefers the
+ * interpreter the environment already uses, then the system ones.
+ */
+export function numpyPython() {
+  const candidates = [
+    process.env.OPENCODE_HOLOGRAPHIC_PYTHON,
+    "/usr/bin/python3",
+    "/usr/local/bin/python3",
+    "python3",
+  ];
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    try {
+      execFileSync(candidate, ["-c", "import numpy"], { stdio: "pipe" });
+      return candidate;
+    } catch {
+      /* keep looking */
+    }
+  }
+  return undefined;
+}
+
 export async function waitFor(condition, timeoutMs, what) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {

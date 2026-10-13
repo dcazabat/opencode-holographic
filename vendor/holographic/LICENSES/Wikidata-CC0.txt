@@ -1,0 +1,14 @@
+de_compounds.tsv.gz and de_es_forms.tsv.gz are derived from Wikidata Lexemes
+(https://www.wikidata.org/wiki/Wikidata:Lexicographical_data), queried 2026-10-12 through
+https://query.wikidata.org/sparql (queries and changes: tools/build_de_es_lexicon.py).
+
+Wikidata's structured data, lexemes included, is released under the Creative Commons CC0 1.0 Universal
+Public Domain Dedication (https://creativecommons.org/publicdomain/zero/1.0/; see
+https://www.wikidata.org/wiki/Wikidata:Licensing). No attribution is required; it is given here anyway:
+data from Wikidata, by its contributors.
+
+CC0 1.0 Universal, summary: the person who associated a work with this deed has dedicated the work to the
+public domain by waiving all of their rights to the work worldwide under copyright law, including all
+related and neighboring rights, to the extent allowed by law. You can copy, modify, distribute and perform
+the work, even for commercial purposes, all without asking permission. Full legal code:
+https://creativecommons.org/publicdomain/zero/1.0/legalcode

@@ -34,6 +34,9 @@ export function resolveConfig(options = {}, pluginDir) {
         launcher: str(options.launcher) ?? join(pluginDir, "sidecar", "run.sh"),
         pythonPath: str(options.pythonPath) ?? process.env.OPENCODE_HOLOGRAPHIC_PYTHON,
         hermesHome,
+        configPath: str(options.configPath) ??
+            process.env.OPENCODE_HOLOGRAPHIC_CONFIG ??
+            join(homedir(), ".config", "opencode-holographic", "config.json"),
         dbPath: str(options.dbPath) ?? process.env.OPENCODE_HOLOGRAPHIC_DB,
         timeoutMs: num(options.timeoutMs, DEFAULTS.timeoutMs),
         spawn: bool(options.spawn, DEFAULTS.spawn),

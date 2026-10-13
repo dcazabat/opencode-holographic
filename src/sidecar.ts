@@ -120,6 +120,8 @@ export class SidecarClient {
     };
     if (this.config.pythonPath)
       env.OPENCODE_HOLOGRAPHIC_PYTHON = this.config.pythonPath;
+    if (this.config.configPath)
+      env.OPENCODE_HOLOGRAPHIC_CONFIG = this.config.configPath;
     if (this.config.dbPath) env.OPENCODE_HOLOGRAPHIC_DB = this.config.dbPath;
 
     const logPath = `${this.config.socketPath}.log`;
