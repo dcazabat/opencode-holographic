@@ -353,5 +353,5 @@ It is only used in standalone mode; when Hermes is present its own copy wins.
 MIT — see [LICENSE](LICENSE).
 
 The provider under `vendor/holographic/` is a separate MIT-licensed work
-(Copyright (c) 2025 Nous Research, (c) 2026 itpartypattaya); its own `LICENSE` and
-`LICENSES/` (bundled dictionary data) are kept in that directory.
+(Copyright (c) 2025 Nous Research, (c) 2026 itpartypattaya); see
+[THIRD-PARTY.md](THIRD-PARTY.md) for the notices and the bundled dictionary data licenses.
