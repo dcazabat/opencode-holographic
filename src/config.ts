@@ -35,12 +35,24 @@ export interface HolographicConfig {
   spawn: boolean;
   /** Log sidecar traffic to the OpenCode log. */
   debug: boolean;
+  /** Remind the agent to flush durable facts to `fact_store` (Hermes' flush nudge). */
+  flushEnabled: boolean;
+  /** User turns since the last save before a flush reminder is due. */
+  flushMinTurns: number;
+  /** User turns between two flush reminders while nothing is being saved. */
+  nudgeInterval: number;
+  /** Override for the flush reminder text ("" keeps the built-in message). */
+  flushMessage: string;
 }
 
 const DEFAULTS = {
   timeoutMs: 8000,
   spawn: true,
   debug: false,
+  // Mirrors Hermes' `flush_min_turns: 6` / `nudge_interval: 10`.
+  flushEnabled: true,
+  flushMinTurns: 6,
+  nudgeInterval: 10,
 };
 
 /**
@@ -126,5 +138,9 @@ export function resolveConfig(
     timeoutMs: num(options.timeoutMs, DEFAULTS.timeoutMs),
     spawn: bool(options.spawn, DEFAULTS.spawn),
     debug: bool(options.debug, DEFAULTS.debug),
+    flushEnabled: bool(options.flushEnabled, DEFAULTS.flushEnabled),
+    flushMinTurns: num(options.flushMinTurns, DEFAULTS.flushMinTurns),
+    nudgeInterval: num(options.nudgeInterval, DEFAULTS.nudgeInterval),
+    flushMessage: str(options.flushMessage) ?? "",
   };
 }

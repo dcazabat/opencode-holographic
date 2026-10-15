@@ -1,6 +1,6 @@
 {
   "name": "opencode-holographic",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "OpenCode V2 plugin + sidecar that reuses Hermes' holographic SQLite memory store",
   "license": "MIT",

@@ -87,10 +87,21 @@ config → (shared) el `config.yaml` de Hermes → default `~/.local/share/openc
 **Del lado de OpenCode:**
 
 - `ctx.session.hook("context")` → extrae el último mensaje del usuario, pide el recall y lo empuja en
-  `event.system` como datos.
+  `event.system` como datos, más el recordatorio de auto-flush cuando el ritmo lo indica.
 - `ctx.session.hook("compaction")` → reinjecta el mismo bloque para que los hechos sobrevivan al
   reescribir el transcript.
 - `ctx.tool.transform(...)` → registra `fact_store` / `fact_feedback`, ejecutadas a través del sidecar.
+
+**Auto-flush (guardar como Hermes).** El recall es solo la mitad de la memoria: sin un empujón, una
+sesión larga nunca escribe nada. El plugin mantiene el ritmo de Hermes (`flush_min_turns: 6`,
+`nudge_interval: 10`) y, cuando una sesión lleva esa cantidad de turnos de usuario desde su último
+`fact_store add`, inyecta un recordatorio breve junto al bloque de recall. El **agente** decide
+después qué es duradero y lo guarda: el plugin nunca escribe facts por su cuenta, porque elegir qué
+merece recordarse es trabajo del modelo (un script solo podría volcar transcripciones crudas a un
+store curado). Un recordatorio ignorado se repite cada `nudgeInterval` turnos en vez de en cada
+llamada al modelo, y un `fact_store add` exitoso reinicia el ritmo. El conteo de turnos deduplica
+igual que el recall, así que las re-ejecuciones del hook `context` por continuación nunca cuentan
+dos veces.
 
 Dos detalles que importan:
 
@@ -286,18 +297,22 @@ systemctl --user daemon-reload && systemctl --user enable --now opencode-hologra
 Opciones del plugin en `opencode.json` (todas opcionales; las variables de entorno funcionan como
 defaults):
 
-| Opción       | Variable                      | Default                                                     | Significado                                                                                        |
-| ------------ | ----------------------------- | ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| `socketPath` | `OPENCODE_HOLOGRAPHIC_SOCKET` | socket unix (Linux/macOS), `tcp://127.0.0.1:4748` (Windows) | Endpoint: una ruta, `unix:/ruta`, o `tcp://host:puerto`.                                           |
-| `token`      | `OPENCODE_HOLOGRAPHIC_TOKEN`  | –                                                           | Secreto compartido; cada request tiene que mandarlo (recomendado para TCP en un host no-loopback). |
-| `configPath` | `OPENCODE_HOLOGRAPHIC_CONFIG` | `~/.config/opencode-holographic/config.json`                | Archivo de config que recibe el sidecar.                                                           |
-| `dbPath`     | `OPENCODE_HOLOGRAPHIC_DB`     | –                                                           | Ruta explícita del store (pisa el archivo de config).                                              |
-| `launcher`   | –                             | `<proyecto>/sidecar/run.sh` (`run.cmd` en Windows)          | Arranca el sidecar si el socket no está.                                                           |
-| `pythonPath` | `OPENCODE_HOLOGRAPHIC_PYTHON` | auto-detectado                                              | Override del intérprete.                                                                           |
-| `hermesHome` | `HERMES_HOME`                 | `~/.hermes`                                                 | Home de Hermes (modo shared).                                                                      |
-| `timeoutMs`  | –                             | `8000`                                                      | Timeout por request; si falla, degrada a "sin memoria".                                            |
-| `spawn`      | –                             | `true`                                                      | Arranca el sidecar bajo demanda si el servicio está caído.                                         |
-| `debug`      | –                             | `false`                                                     | Loguea el tráfico del socket en el log de OpenCode.                                                |
+| Opción          | Variable                      | Default                                                     | Significado                                                                                        |
+| --------------- | ----------------------------- | ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `socketPath`    | `OPENCODE_HOLOGRAPHIC_SOCKET` | socket unix (Linux/macOS), `tcp://127.0.0.1:4748` (Windows) | Endpoint: una ruta, `unix:/ruta`, o `tcp://host:puerto`.                                           |
+| `token`         | `OPENCODE_HOLOGRAPHIC_TOKEN`  | –                                                           | Secreto compartido; cada request tiene que mandarlo (recomendado para TCP en un host no-loopback). |
+| `configPath`    | `OPENCODE_HOLOGRAPHIC_CONFIG` | `~/.config/opencode-holographic/config.json`                | Archivo de config que recibe el sidecar.                                                           |
+| `dbPath`        | `OPENCODE_HOLOGRAPHIC_DB`     | –                                                           | Ruta explícita del store (pisa el archivo de config).                                              |
+| `launcher`      | –                             | `<proyecto>/sidecar/run.sh` (`run.cmd` en Windows)          | Arranca el sidecar si el socket no está.                                                           |
+| `pythonPath`    | `OPENCODE_HOLOGRAPHIC_PYTHON` | auto-detectado                                              | Override del intérprete.                                                                           |
+| `hermesHome`    | `HERMES_HOME`                 | `~/.hermes`                                                 | Home de Hermes (modo shared).                                                                      |
+| `timeoutMs`     | –                             | `8000`                                                      | Timeout por request; si falla, degrada a "sin memoria".                                            |
+| `spawn`         | –                             | `true`                                                      | Arranca el sidecar bajo demanda si el servicio está caído.                                         |
+| `debug`         | –                             | `false`                                                     | Loguea el tráfico del socket en el log de OpenCode.                                                |
+| `flushEnabled`  | –                             | `true`                                                      | Recordarle al agente guardar facts duraderos (`fact_store add`) cada N turnos.                     |
+| `flushMinTurns` | –                             | `6`                                                         | Turnos de usuario desde el último guardado antes de que venza el recordatorio (`flush_min_turns`). |
+| `nudgeInterval` | –                             | `10`                                                        | Turnos entre dos recordatorios si nadie guarda (`nudge_interval`).                                 |
+| `flushMessage`  | –                             | texto propio                                                | Cambia el texto del recordatorio (`""` deja el propio).                                            |
 
 ## Operación
 

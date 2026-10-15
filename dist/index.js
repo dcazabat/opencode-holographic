@@ -12,7 +12,8 @@ import { basename, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Plugin } from "@opencode/plugin";
 import { resolveConfig } from "./src/config.js";
-import { RecallCache } from "./src/recall.js";
+import { FlushTracker } from "./src/flush.js";
+import { lastUserTurn, RecallCache } from "./src/recall.js";
 import { SidecarClient } from "./src/sidecar.js";
 import { buildTools, FALLBACK_SCHEMAS, } from "./src/tools.js";
 const PLUGIN_ID = "opencode.holographic";
@@ -36,6 +37,7 @@ export default Plugin.define({
         };
         const client = new SidecarClient(config, trace);
         const recall = new RecallCache(client, log);
+        const flush = new FlushTracker(config, trace);
         let schemas = FALLBACK_SCHEMAS;
         try {
             const fetched = await client.request("schemas");
@@ -46,14 +48,20 @@ export default Plugin.define({
         catch (error) {
             log(`sidecar not reachable at setup, using fallback schemas: ${message(error)}`);
         }
+        // A successful `fact_store add` is a save: it restarts the flush cadence.
+        const watched = buildTools(client, schemas).map((tool) => watchForSave(tool, flush));
         await ctx.tool.transform((editor) => {
-            for (const definition of buildTools(client, schemas))
+            for (const definition of watched)
                 editor.add(definition);
         });
         await ctx.session.hook("context", async (event) => {
             const block = await recall.blockFor(event.sessionID, event.messages);
             if (block)
                 event.system.push({ type: "text", text: block });
+            const turnKey = lastUserTurn(event.messages)?.key ?? "";
+            const nudge = flush.reminderFor(event.sessionID, turnKey);
+            if (nudge)
+                event.system.push({ type: "text", text: nudge });
         });
         // Compaction rebuilds the transcript: keep the recalled facts in the new context.
         await ctx.session.hook("compaction", async (event) => {
@@ -69,4 +77,27 @@ export default Plugin.define({
 });
 function message(error) {
     return error instanceof Error ? error.message : String(error);
+}
+/**
+ * Wraps a registered tool so a successful `fact_store add` restarts the flush
+ * cadence. Only that action counts: reading or updating a fact is not a save.
+ */
+function watchForSave(tool, flush) {
+    if (tool.name !== "fact_store")
+        return tool;
+    const inner = tool.execute;
+    return {
+        ...tool,
+        execute: async (input, context) => {
+            const result = await inner(input, context);
+            const action = input?.action;
+            const ok = result?.metadata?.ok === true;
+            if (ok && action === "add") {
+                const sessionID = context?.sessionID ?? "";
+                if (sessionID)
+                    flush.markSaved(sessionID);
+            }
+            return result;
+        },
+    };
 }

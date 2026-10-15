@@ -12,6 +12,10 @@ const DEFAULTS = {
     timeoutMs: 8000,
     spawn: true,
     debug: false,
+    // Mirrors Hermes' `flush_min_turns: 6` / `nudge_interval: 10`.
+    flushEnabled: true,
+    flushMinTurns: 6,
+    nudgeInterval: 10,
 };
 /**
  * Unix socket where the OS provides one; TCP loopback on Windows, because Node there
@@ -75,5 +79,9 @@ export function resolveConfig(options = {}, pluginDir) {
         timeoutMs: num(options.timeoutMs, DEFAULTS.timeoutMs),
         spawn: bool(options.spawn, DEFAULTS.spawn),
         debug: bool(options.debug, DEFAULTS.debug),
+        flushEnabled: bool(options.flushEnabled, DEFAULTS.flushEnabled),
+        flushMinTurns: num(options.flushMinTurns, DEFAULTS.flushMinTurns),
+        nudgeInterval: num(options.nudgeInterval, DEFAULTS.nudgeInterval),
+        flushMessage: str(options.flushMessage) ?? "",
     };
 }

@@ -133,6 +133,48 @@ describe("plugin wiring", { skip }, () => {
   });
 });
 
+describe("auto-flush through the context hook", { skip }, () => {
+  const session = "plugin-flush";
+
+  it("nudges after the threshold and restarts after a save", async () => {
+    // Six distinct user turns (the default flushMinTurns) stay silent until the last.
+    for (let index = 1; index <= 6; index++) {
+      const event = {
+        sessionID: session,
+        messages: [userMessage(`f${index}`, `turn ${index}`)],
+        system: [],
+      };
+      await hooks.get("context")(event);
+      const nudge = event.system.find((block) => /Auto-flush/.test(block.text));
+      if (index < 6) assert.equal(nudge, undefined);
+      else assert.ok(nudge, "expected a flush reminder on the sixth turn");
+    }
+
+    // A real save resets the cadence: the next turn must not nudge again.
+    const saved = await tools
+      .get("fact_store")
+      .execute(
+        {
+          action: "add",
+          content: `Flush test ${Date.now()}`,
+          category: "nota",
+        },
+        { sessionID: session },
+      );
+    assert.equal(saved.metadata.ok, true);
+    const after = {
+      sessionID: session,
+      messages: [userMessage("f7", "turn 7")],
+      system: [],
+    };
+    await hooks.get("context")(after);
+    assert.equal(
+      after.system.find((block) => /Auto-flush/.test(block.text)),
+      undefined,
+    );
+  });
+});
+
 describe("recall through the hooks (needs a populated store)", { skip }, () => {
   it("injects recalled facts before a turn", async () => {
     const event = {
